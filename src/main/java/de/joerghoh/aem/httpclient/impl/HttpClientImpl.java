@@ -37,7 +37,7 @@ import de.joerghoh.aem.httpclient.SimpleHttpClient;
 @Designate(ocd = HttpClientConfiguration.class,factory = true)
 public class HttpClientImpl implements SimpleHttpClient {
 	
-	// no static logger, will be initialize later
+	// no static logger, will be initialized later
 	private Logger logger;
 	
 	
@@ -106,8 +106,7 @@ public class HttpClientImpl implements SimpleHttpClient {
 				.build();
 		
 		
-		PoolingAsyncClientConnectionManager connManager 
-		  = new PoolingAsyncClientConnectionManager();
+		PoolingAsyncClientConnectionManager connManager = new PoolingAsyncClientConnectionManager();
 		connManager.setDefaultMaxPerRoute(config.maxConnectionsPerRoute());
 		connManager.setMaxTotal(config.maxConnections());
 		connManager.setDefaultConnectionConfig(ConnectionConfig.custom().
