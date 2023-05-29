@@ -10,16 +10,13 @@ import org.apache.hc.client5.http.async.methods.SimpleHttpRequest;
 import org.apache.hc.client5.http.async.methods.SimpleHttpResponse;
 import org.apache.hc.client5.http.async.methods.SimpleRequestProducer;
 import org.apache.hc.client5.http.async.methods.SimpleResponseConsumer;
-import org.apache.hc.client5.http.classic.methods.HttpUriRequestBase;
 import org.apache.hc.client5.http.config.ConnectionConfig;
 import org.apache.hc.client5.http.config.RequestConfig;
 import org.apache.hc.client5.http.impl.async.CloseableHttpAsyncClient;
 import org.apache.hc.client5.http.impl.async.HttpAsyncClientBuilder;
 import org.apache.hc.client5.http.impl.async.HttpAsyncClients;
-import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManager;
 import org.apache.hc.client5.http.impl.nio.PoolingAsyncClientConnectionManager;
 import org.apache.hc.core5.concurrent.FutureCallback;
-import org.apache.hc.core5.http.io.entity.EntityUtils;
 import org.apache.hc.core5.reactor.IOReactorConfig;
 import org.apache.hc.core5.util.Timeout;
 import org.osgi.service.component.annotations.Activate;
@@ -47,6 +44,14 @@ public class HttpClientImpl implements SimpleHttpClient {
 	@Override
 	public void performRequest(SimpleHttpRequest request,Consumer<SimpleHttpResponse> success, Consumer<Throwable> failed)  {
 		
+		String tmp = "";
+		try {
+			tmp = request.getUri().toString();
+		} catch (URISyntaxException ex) {
+			tmp = "(invalid uri, exception = " + ex.getMessage() + ")";
+		}
+		final String requestUri = tmp;
+		
         final Future<SimpleHttpResponse> future = httpclient.execute(
                 SimpleRequestProducer.create(request),
                 SimpleResponseConsumer.create(),
@@ -54,15 +59,10 @@ public class HttpClientImpl implements SimpleHttpClient {
 
                     @Override
                     public void completed(final SimpleHttpResponse response) {
-                    	if (response.getCode() >= 500) {
-                    		String msg;
-                    		int errorCode = response.getCode();
-							try {
-								msg = "Request to " + request.getUri().toString() + " returned with statuscode " + errorCode;
-							} catch (URISyntaxException e) {
-								msg = "Remote request returned with statuscode " + errorCode;
-							}
-                    		RemoteServerErrorException ex = new RemoteServerErrorException(msg, errorCode);
+                    	int statusCode = response.getCode();
+                    	if (statusCode >= 500) {
+                    		String msg = "Request to " + requestUri + " returned with status code " + statusCode;
+                    		RemoteServerErrorException ex = new RemoteServerErrorException(msg, statusCode);
                     		failed.accept(ex);
                     	} else {
                     		success.accept(response);
@@ -82,8 +82,11 @@ public class HttpClientImpl implements SimpleHttpClient {
                 });
         try {
         	future.get();
-        } catch (Exception e) {
-        	failed.accept(e.getCause());
+        } catch (ExecutionException ee) {
+        	// The executionException wraps the original exception
+        	failed.accept(ee.getCause());
+        } catch (InterruptedException ie) {
+        	logger.error("InterruptedException while requesting " + requestUri, ie);
         }
 	}
 	
