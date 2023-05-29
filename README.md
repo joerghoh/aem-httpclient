@@ -1,3 +1,6 @@
+![Build status](https://github.com/joerghoh/aem-httpclient/actions/workflows/github-actions-build.yml/badge.svg?branch=main)
+![Apache 2 license](https://img.shields.io/badge/License-Apache_2.0-blue.svg)
+
 # aem-httpclient
 
 AEM ships out-of-the-box with a version of the Apache httpclient 4.x libraries, which are a fine piece of software. But I experienced a number of situations where features of the httpclients were not used, which led to problems for both customers, endusers and operation.
