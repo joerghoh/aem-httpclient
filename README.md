@@ -20,8 +20,17 @@ To address these reasons I decided to create a project, which provides a HTTP cl
 * have these settings configurable via OSGI
 * enforce explicitly the handling of error situations like networking issues, timeouts and unexpected HTTP status codes
 * provide metrics and logging in case of issues to analyze problems quickly
-* be easy to include into custom applications
+* be easy to include and use it in the context of your own application. You should need to care about any lifecycle considerations, but just use the client in a fire-and-forget way.
 
 
+That made up the major design decisions:
+* Use Apache httpclient 5.x, which has explicit support for HTTP/2
+* When using aem-httpclient you should need to deal with any internals of the Apache httpclient libraries, but rather focus just on the request/response cycle. All operational aspects, especially in the context of AEM, are taken care of.
+* Customization on low-level aspects (except what is exposed via configuration) is not possible. If that is required you should be able to build your own httpclient.
+
+
+## How to use
+
+Check the [Quickstart tutorial](docs/quickstart.md) to see how you can get started with the aem-httpclient library.
 
 
