@@ -8,6 +8,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 import org.apache.hc.client5.http.async.methods.SimpleHttpRequest;
 import org.apache.hc.client5.http.async.methods.SimpleHttpResponse;
@@ -35,9 +36,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @ExtendWith(AemContextExtension.class)
 public class HttpClientImplTest {
 	
+	
 	public final AemContext context = new AemContext();
 	
 	public final static Map<String,Object> DEFAULT_OSGI_CONFIG = Collections.emptyMap();
+	
+	public final static String EXPECTED_RESULT = "expected";
+	public final static String UNEXPECTED_RESULT = "fail";
 	
 	
 	@Test
@@ -45,19 +50,22 @@ public class HttpClientImplTest {
 		
 		
 		stubFor(get("/returns200").willReturn(ok().withBody("ok")));
-		stubFor(get("/return500").willReturn(WireMock.notFound().withBody("not found")));
 
 		String requestPath = wmRuntimeInfo.getHttpBaseUrl() + "/returns200";
 		SimpleHttpRequest request = SimpleRequestBuilder.get(requestPath).build();
 		
-		Consumer<SimpleHttpResponse> success = (response) -> { 
+		Function<SimpleHttpResponse,String> success = (response) -> { 
 			assertEquals("ok",response.getBodyText()); 
 			assertEquals(200,response.getCode());
+			return "ok";
 		};
-		Consumer<Throwable> failed = (throwable) -> { Assertions.fail("a succesful call must not invoke the fail handler"); };
+		Function<Throwable,String> failed = (throwable) -> { 
+				Assertions.fail("a succesful call must not invoke the fail handler"); 
+				return "failed";
+			};
 		
 		HttpClientImpl client = getClient(DEFAULT_OSGI_CONFIG);
-		client.performRequest( request, success, failed);
+		assertEquals("ok",client.performRequest( request, success, failed));
 		
 	}
 	
@@ -70,20 +78,21 @@ public class HttpClientImplTest {
 					.withBody("internal server error")
 				));
 		
-		Consumer<SimpleHttpResponse> success = (response) -> { 
+		Function<SimpleHttpResponse,String> success = (response) -> { 
 			Assertions.fail("an internal server error must invoke the success handler");
+			return "failed";
 		};
-		Consumer<Throwable> failed = (throwable) -> { 
+		Function<Throwable,String> failed = (throwable) -> { 
 			assertTrue(throwable instanceof RemoteServerErrorException);
 			RemoteServerErrorException ex = (RemoteServerErrorException) throwable;
 			assertEquals(500,ex.getErrorCode());
-			
+			return "ok";
 		};
 		
 		HttpClientImpl client = getClient(DEFAULT_OSGI_CONFIG);
 		String requestPath = wmRuntimeInfo.getHttpBaseUrl() + "/return500";
 		SimpleHttpRequest request = SimpleRequestBuilder.get(requestPath).build();
-		client.performRequest(request, success, failed);
+		assertEquals("ok",client.performRequest(request, success, failed));
 	}
 	
 	@Test
@@ -95,11 +104,13 @@ public class HttpClientImplTest {
 					.withFixedDelay(2000)
 				));
 		
-		Consumer<SimpleHttpResponse> success = (response) -> { 
+		Function<SimpleHttpResponse,String> success = (response) -> { 
 			Assertions.fail("a timeout must not invoke the success handler");
+			return "failed";
 		};
-		Consumer<Throwable> failed = (throwable) -> {
+		Function<Throwable,String> failed = (throwable) -> {
 			assertEquals(SocketTimeoutException.class,throwable.getClass());
+			return "ok";
 		};
 		
 		Map<String,Object> osgiConfig = Map.of(
@@ -108,31 +119,34 @@ public class HttpClientImplTest {
 		HttpClientImpl client = getClient(osgiConfig);
 		String requestPath = wmRuntimeInfo.getHttpBaseUrl() + "/delay";
 		SimpleHttpRequest request = SimpleRequestBuilder.get(requestPath).build();
-		client.performRequest(request, success, failed);
+		assertEquals("ok",client.performRequest(request, success, failed));
 	}
 	
 	@Test
 	protected void nonAvailableConnectionTriggersFailure(WireMockRuntimeInfo wmRuntimeInfo) throws InterruptedException, ExecutionException {
 		// test the connection request timeout -- we cannot get a connection in time from the pool
-		stubFor(get("/delay").willReturn(
+		stubFor(get("/slow").willReturn(
 				aResponse()
 					.withStatus(200)
 					.withBody("delayed response")
 					.withFixedDelay(2000)
 				));
 		
-		Consumer<SimpleHttpResponse> successFirstRequest = (response) -> { 
-			// do nothing
+		Function<SimpleHttpResponse,String> success1 = (response) -> { 
+			return EXPECTED_RESULT;
 		};
-		Consumer<Throwable> failedFirstRequest = (throwable) -> {
+		Function<Throwable,String> failed1 = (throwable) -> {
 			Assertions.fail("it is just slow, but must not invoke a failure!");
+			return UNEXPECTED_RESULT;
 		};
 		
-		Consumer<SimpleHttpResponse> successSecondRequest = (response) -> { 
+		Function<SimpleHttpResponse,String> success2 = (response) -> {
 			Assertions.fail("this should have never get invoked");
+			return UNEXPECTED_RESULT;
 		};
-		Consumer<Throwable> failedSecondRequest = (throwable) -> {
+		Function<Throwable,String> failed2 = (throwable) -> {
 			assertEquals(DeadlineTimeoutException.class,throwable.getClass());
+			return EXPECTED_RESULT;
 		};
 		
 		// allow just 1 request to go to the server at once, and it should be 
@@ -142,15 +156,15 @@ public class HttpClientImplTest {
 				"connectionTimeoutInMilis",10000
 				);
 		HttpClientImpl client = getClient(osgiConfig); 
-		String requestPath = wmRuntimeInfo.getHttpBaseUrl() + "/delay";
+		String requestPath = wmRuntimeInfo.getHttpBaseUrl() + "/slow";
 		SimpleHttpRequest request = SimpleRequestBuilder.get(requestPath).build();
 		
 		
 		Runnable successButSlow = () -> {
-			client.performRequest(request, successFirstRequest, failedFirstRequest);
+			assertEquals(EXPECTED_RESULT,client.performRequest(request, success1, failed1));
 		};
 		Runnable willFailWithTimeout = () -> {
-			client.performRequest(request, successSecondRequest, failedSecondRequest);
+			assertEquals(EXPECTED_RESULT,client.performRequest(request, success2, failed2));
 		};
 		
 		final ExecutorService pool = Executors.newFixedThreadPool(5);
@@ -160,7 +174,6 @@ public class HttpClientImplTest {
 		
 		f1.get();
 		f2.get();
-		
 	}
 	
 	

@@ -2,9 +2,12 @@ package de.joerghoh.aem.httpclient.impl;
 
 import java.io.IOException;
 import java.net.URISyntaxException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 import org.apache.hc.client5.http.async.methods.SimpleHttpRequest;
 import org.apache.hc.client5.http.async.methods.SimpleHttpResponse;
@@ -42,7 +45,7 @@ public class HttpClientImpl implements SimpleHttpClient {
 	
 
 	@Override
-	public void performRequest(SimpleHttpRequest request,Consumer<SimpleHttpResponse> success, Consumer<Throwable> failed)  {
+	public <R> R performRequest(SimpleHttpRequest request,Function<SimpleHttpResponse,R> success, Function<Throwable,R> failed)  {
 		
 		String tmp = "";
 		try {
@@ -52,41 +55,28 @@ public class HttpClientImpl implements SimpleHttpClient {
 		}
 		final String requestUri = tmp;
 		
+		final List<R> result = new ArrayList<>();
+		
         final Future<SimpleHttpResponse> future = httpclient.execute(
                 SimpleRequestProducer.create(request),
                 SimpleResponseConsumer.create(),
-                new FutureCallback<SimpleHttpResponse>() {
-
-                    @Override
-                    public void completed(final SimpleHttpResponse response) {
-                    	int statusCode = response.getCode();
-                    	if (statusCode >= 500) {
-                    		String msg = "Request to " + requestUri + " returned with status code " + statusCode;
-                    		RemoteServerErrorException ex = new RemoteServerErrorException(msg, statusCode);
-                    		failed.accept(ex);
-                    	} else {
-                    		success.accept(response);
-                    	}
-                    }
-
-                    @Override
-                    public void failed(final Exception ex) {
-                        failed.accept(ex);
-                    }
-
-                    @Override
-                    public void cancelled() {
-                        // this should not happen in this case, as this request is executed synchronously
-                    }
-
-                });
+                null);
         try {
-        	future.get();
+        	SimpleHttpResponse response = future.get();
+        	int statuscode = response.getCode();
+        	if (statuscode >= 500) {
+        		String msg = "Request to " + requestUri + " returned with statuscode " + statuscode;
+        		RemoteServerErrorException ex = new RemoteServerErrorException(msg, statuscode);
+        		return failed.apply(ex);
+        	} else {
+        		return success.apply(response);
+        	}
         } catch (ExecutionException ee) {
         	// The executionException wraps the original exception
-        	failed.accept(ee.getCause());
+        	return failed.apply(ee.getCause());
         } catch (InterruptedException ie) {
         	logger.error("InterruptedException while requesting " + requestUri, ie);
+        	return failed.apply(ie);
         }
 	}
 	
