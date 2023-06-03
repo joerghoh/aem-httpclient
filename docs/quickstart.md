@@ -85,11 +85,12 @@ This will instantiate a service with the id "default", and which is using reason
 ## Using the aem-httpclient
 
 
-Now you can start using your configured httpclient. You can use it 
+Now you can start using your configured httpclient. You can use it like this:
 
 
 ```
-import de.joerghoh.aem.httpclient
+import de.joerghoh.aem.httpclient;
+import org.apache.hc.client5.http.async.methods.SimpleHttpRequest;
 ...
 
 
@@ -98,20 +99,25 @@ HttpClient httpclient;
 
 ...
 
-
-
-
-
-
-
+private String getGoogleHomepageContent() {
+  SimpleHttpRequest googleRequest = new SimpleHttpRequest("GET", "https://www.google.com");
+  String googleContent = httpclient.performRequest(googleRequest, 
+    (response) -> {
+      return response.getBodyText();
+    	}, 
+    	(exception) -> {
+    	  return "exception: " + exception.getMessage();
+    	);
+   resp.getWriter().write(googleContent);
+  }
 ```
 
 Notes:
 * The ``@Reference`` annotation explicitly lists a specific service instance which should be injected. This is the ``default`` service we instantiated before. When only 1 instance of the httpclient is being created, this is not needed, but you should explicitly state which instance you want.
 
 
-
-
+Caveats:
+* This approach is not suited for large responses (> 1MB), as it buffers the complete response in heap; if you need to handle potentially larger responses, you should use a streaming approach described at tbd.
 
 
 
