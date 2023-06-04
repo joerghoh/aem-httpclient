@@ -40,6 +40,10 @@ public class HttpClientImpl implements SimpleHttpClient {
 	// no static logger, will be initialized later
 	private Logger logger;
 	
+	private static final int WARN_AT_BODY_SIZE = 1024*1024; // 1 megabyte;
+	
+	
+	HttpClientConfiguration config;
 	
 	protected CloseableHttpAsyncClient httpclient;
 	
@@ -55,8 +59,6 @@ public class HttpClientImpl implements SimpleHttpClient {
 		}
 		final String requestUri = tmp;
 		
-		final List<R> result = new ArrayList<>();
-		
         final Future<SimpleHttpResponse> future = httpclient.execute(
                 SimpleRequestProducer.create(request),
                 SimpleResponseConsumer.create(),
@@ -69,6 +71,13 @@ public class HttpClientImpl implements SimpleHttpClient {
         		RemoteServerErrorException ex = new RemoteServerErrorException(msg, statuscode);
         		return failed.apply(ex);
         	} else {
+        		long responseSize = response.getBodyBytes().length;
+        		if (responseSize > WARN_AT_BODY_SIZE) {
+        			String msg = String.format("the response size for the request [%s] is %s bytes; "
+        					+ "please consider to switch to a streaming approach for such requests", 
+        					requestUri, responseSize);
+        			logger.warn(msg);
+        		}
         		return success.apply(response);
         	}
         } catch (ExecutionException ee) {
@@ -86,6 +95,8 @@ public class HttpClientImpl implements SimpleHttpClient {
 	
 	@Activate
 	public void activate(HttpClientConfiguration config) {
+		
+		this.config = config;
 		
 		logger = LoggerFactory.getLogger(HttpClientImpl.class.getName() + "." + config.id());
 		
@@ -118,6 +129,7 @@ public class HttpClientImpl implements SimpleHttpClient {
 
 		httpclient = builder.build();
         httpclient.start();
+        logger.info("started " + this);
 	}
 	
 	
@@ -125,6 +137,22 @@ public class HttpClientImpl implements SimpleHttpClient {
 	public void deactivate() throws IOException {
 		httpclient.close();
 	}
+	
+	
+	public String toString() {
+		return String.format("aem-httpclient(id=%s,socketTimeOut=%s ms,"
+				+ "connectionTimeout=%s ms,connectionRequesttimeout=%s ms,"
+				+ "maxConnectionsPerRoute=%s,maxConnections=%s)",
+				config.id(),
+				config.socketTimeoutInMilis(),
+				config.connectionTimeoutInMilis(),
+				config.connectionRequestTimeoutInMilis(),
+				config.maxConnectionsPerRoute(),
+				config.maxConnections()
+				);
+		
+	}
+	
 	
 
 }

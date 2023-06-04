@@ -2,6 +2,7 @@ package de.joerghoh.aem.httpclient.impl;
 
 import java.net.SocketTimeoutException;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -10,10 +11,13 @@ import java.util.concurrent.Future;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hc.client5.http.async.methods.SimpleHttpRequest;
 import org.apache.hc.client5.http.async.methods.SimpleHttpResponse;
 import org.apache.hc.client5.http.async.methods.SimpleRequestBuilder;
 import org.apache.hc.core5.util.DeadlineTimeoutException;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -26,10 +30,16 @@ import de.joerghoh.aem.httpclient.RemoteServerErrorException;
 import io.wcm.testing.mock.aem.junit5.AemContext;
 import io.wcm.testing.mock.aem.junit5.AemContextExtension;
 import junit.framework.Assert;
+import uk.org.lidalia.slf4jext.Level;
+import uk.org.lidalia.slf4jtest.LoggingEvent;
+import uk.org.lidalia.slf4jtest.TestLogger;
+import uk.org.lidalia.slf4jtest.TestLoggerFactory;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.contains;
 
 
 @WireMockTest
@@ -62,7 +72,7 @@ public class HttpClientImplTest {
 		Function<Throwable,String> failed = (throwable) -> { 
 				Assertions.fail("a succesful call must not invoke the fail handler"); 
 				return "failed";
-			};
+		};
 		
 		HttpClientImpl client = getClient(DEFAULT_OSGI_CONFIG);
 		assertEquals("ok",client.performRequest( request, success, failed));
@@ -177,13 +187,51 @@ public class HttpClientImplTest {
 	}
 	
 	
-	
+	@Test
+	protected void warnOnTooLargeResponse(WireMockRuntimeInfo wmRuntimeInfo) {
+		
+		String largeResponse = StringUtils.repeat("aaaa", 1024*512); // 2 megabyte
+		stubFor(get("/largeResponse").willReturn(
+				aResponse()
+					.withStatus(200)
+					.withBody(largeResponse)
+				));
+		HttpClientImpl client = getClient(DEFAULT_OSGI_CONFIG);
+		String requestPath = wmRuntimeInfo.getHttpBaseUrl() + "/largeResponse";
+		SimpleHttpRequest request = SimpleRequestBuilder.get(requestPath).build();
+		
+		Function<SimpleHttpResponse,String> success = (response) -> { 
+			assertTrue(response.getBodyText().length() > 1024*1024); 
+			assertEquals(200,response.getCode());
+			return "ok";
+		};
+		Function<Throwable,String> failed = (throwable) -> { 
+				Assertions.fail("a succesful call must not invoke the fail handler"); 
+				return "failed";
+		};
+		
+		TestLogger log = TestLoggerFactory.getTestLogger(HttpClientImpl.class.getName() + ".default");
+		clearLoggers();
+		
+		assertEquals("ok",client.performRequest(request, success, failed));
+		List<LoggingEvent> events = log.getLoggingEvents();
+		assertEquals(1,events.size());
+		LoggingEvent e = events.get(0);
+		assertEquals(Level.WARN,e.getLevel());
+		assertTrue(e.getMessage().startsWith("the response size for the request"));
+	}
 	
 	private HttpClientImpl getClient(Map<String,Object> osgiConfigParams) {
 		HttpClientImpl client = new HttpClientImpl();
 		context.registerInjectActivateService(client, osgiConfigParams);
 		
 		return client;
+	}
+	
+	
+	@AfterEach
+	public void clearLoggers() {
+		TestLoggerFactory.clear();
 	}
 	
 
